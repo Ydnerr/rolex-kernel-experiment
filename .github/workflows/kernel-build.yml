@@ -1,4 +1,4 @@
-name: MSM8917 Deep Audit
+name: MSM8917 Device Tree Audit
 
 on:
   workflow_dispatch:
@@ -8,29 +8,57 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      - name: Clone device tree
+        run: |
+          git clone --depth=1 --branch a11/master \
+            https://github.com/Mi-Thorium/android_device_xiaomi_Mi8937.git device
+
       - name: Clone kernel
         run: |
           git clone --depth=1 \
             https://github.com/Mi-Thorium/kernel_msm-4.19.git kernel
 
-      - name: Inspect MSM8917
+      - name: Inspect device tree
+        run: |
+          cd device
+
+          echo "===== DEVICE TREE COMMIT ====="
+          git log -1 --oneline
+
+          echo "===== BOARD CONFIG ====="
+          cat BoardConfig.mk
+
+          echo "===== ANDROID PRODUCTS ====="
+          cat AndroidProducts.mk
+
+          echo "===== KERNEL 4.19 PRODUCT ====="
+          cat lineage_Mi8937_4_19.mk
+
+          echo "===== KERNEL 4.19 DIRECTORY ====="
+          find Mi8937_4_19 -maxdepth 3 -type f
+
+          echo "===== KERNEL REFERENCES ====="
+          grep -RniE "TARGET_KERNEL|KERNEL_CONFIG|Mi8917|rolex|Mi8937_4_19" \
+            --include="*.mk" --include="*.bp" . | head -150
+
+      - name: Inspect kernel integration
         run: |
           cd kernel
 
-          echo "===== MI8917 CONFIG ====="
-          cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8917.config
+          echo "===== KERNEL COMMIT ====="
+          git log -1 --oneline
 
-          echo "===== MSM8937 CONFIG ====="
-          cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937.config
+          echo "===== BUILD SCRIPTS ====="
+          find . -maxdepth 3 -type f \
+            \( -name "*.sh" -o -name "Makefile" \) | head -100
 
-          echo "===== EXCLUSION CONFIG ====="
-          cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937_exclude_mi8917.config
+          echo "===== DEFCONFIG REFERENCES ====="
+          grep -RniE "mi8917.config|msm8937-perf_defconfig|msm8937-legacy.config" \
+            --include="*.sh" --include="Makefile" --include="*.mk" . | head -100
 
-          echo "===== MSM8917 MAKEFILE ====="
-          grep -n "msm8917" arch/arm64/boot/dts/vendor/qcom/Makefile || true
+          echo "===== DTB BUILD REFERENCES ====="
+          grep -RniE "dtb|dtbo|vendor-legacy|xiaomi-msm8937" \
+            --include="Makefile" --include="*.mk" arch/arm64/boot | head -150
 
-          echo "===== DEVICE TREE REFERENCES ====="
-          grep -Rni "msm8917" arch/arm64/boot/dts/vendor/qcom/ || true
-
-          echo "===== MSM8917 DRIVERS ====="
-          grep -Ril "msm8917" drivers/ | head -100
+          echo "===== ROLEX REFERENCES ====="
+          grep -Rni "rolex" arch/ drivers/ | head -100
