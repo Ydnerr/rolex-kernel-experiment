@@ -1,8 +1,9 @@
- run: |
-  echo "===== DEVICE BOARD CONFIG 4.19 ====="
-  cat device/Mi8937_4_19/BoardConfig.mk
-  
-      echo "===== COMMON KERNEL CONFIG ====="
+name: Audit kernel build integration
+run: |
+echo "===== DEVICE BOARD CONFIG 4.19 ====="
+cat device/Mi8937_4_19/BoardConfig.mk
+
+    echo "===== COMMON KERNEL CONFIG ====="
     find device -name "BoardConfigCommon.mk" -o -name "*kernel*.mk"
 
     echo "===== KERNEL BUILD VARIABLES ====="
