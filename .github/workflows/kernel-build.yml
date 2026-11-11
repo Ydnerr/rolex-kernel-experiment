@@ -1,5 +1,4 @@
-- name: Audit kernel build integration
-  run: |
+ run: |
   echo "===== DEVICE BOARD CONFIG 4.19 ====="
   cat device/Mi8937_4_19/BoardConfig.mk
   
