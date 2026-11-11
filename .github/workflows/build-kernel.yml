@@ -1,0 +1,121 @@
+name: Build Kernel Rolex
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch (kosongkan = default)"
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Nick89786/android_kernel_xiaomi_msm8917
+          ref: ${{ inputs.branch }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential bc bison flex \
+            libssl-dev libelf-dev zip git
+
+      - name: Clone toolchain (GCC 4.9 aarch64)
+        run: |
+          git clone --depth=1 -b lineage-19.1 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
+            $HOME/gcc64
+
+      - name: Build
+        working-directory: kernel
+        run: |
+          # fix dtc error di host GCC baru
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped || true
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=$HOME/gcc64/bin/aarch64-linux-android-
+          export KBUILD_BUILD_USER=builder
+          export KBUILD_BUILD_HOST=github
+          make O=out rolex_defconfig
+
+          # nama kernel + zram (lz4) + swap
+          scripts/config --file out/.config \
+            --set-str LOCALVERSION "-xvft-experimental" \
+            --disable LOCALVERSION_AUTO \
+            --enable SWAP --enable ZSMALLOC --enable ZRAM \
+            --enable ZRAM_LZ4_COMPRESS --enable CRYPTO_LZ4 \
+            --enable LZ4_COMPRESS --enable LZ4_DECOMPRESS
+          make O=out olddefconfig
+
+          # cek config mana yang beneran aktif
+          grep -E "^CONFIG_(LOCALVERSION|SWAP|ZSMALLOC|ZRAM|ZRAM_LZ4_COMPRESS|CRYPTO_LZ4|ANDROID_LOW_MEMORY_KILLER|MSM_KGSL|CC_OPTIMIZE_FOR_SIZE)[= ]" out/.config | tee ../config-check.txt
+          grep -E "KGSL|ADRENO|DEVFREQ" out/.config | grep "=y" >> ../config-check.txt || true
+
+          make -j$(nproc) 2>&1 | tee ../build.log
+          ls -la out/arch/arm64/boot/
+
+      - name: Package AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 ak3
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb ak3/
+
+          # anykernel.sh ditulis ulang total (tanpa sed), huruf besar dan kecil
+          # sama-sama diisi supaya cocok dengan versi AnyKernel3 apa pun
+          cat > ak3/anykernel.sh << 'EOF'
+          ### AnyKernel3 - xvft-experimental (Redmi 4A / rolex)
+
+          properties() { '
+          kernel.string=xvft-experimental
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=rolex
+          device.name2=
+          device.name3=
+          device.name4=
+          device.name5=
+          supported.versions=
+          supported.patchlevels=
+          '; }
+
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          }
+
+          BLOCK=/dev/block/bootdevice/by-name/boot;
+          IS_SLOT_DEVICE=0;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          block=/dev/block/bootdevice/by-name/boot;
+          is_slot_device=0;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          EOF
+
+          echo "=== anykernel.sh final ==="
+          cat ak3/anykernel.sh
+          grep -q "BLOCK=/dev/block/bootdevice/by-name/boot" ak3/anykernel.sh
+
+          cd ak3
+          zip -r9 ../xvft-experimental-rolex.zip * -x .git README.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xvft-experimental-rolex
+          path: |
+            xvft-experimental-rolex.zip
+            build.log
+            config-check.txt
