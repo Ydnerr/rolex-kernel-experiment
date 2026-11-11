@@ -1,0 +1,72 @@
+name: Rolex Kernel 3.18.140 Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Install audit dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl
+
+      - name: Clone pinned kernel source
+        run: |
+          git clone https://github.com/Nick89786/android_kernel_xiaomi_msm8917.git kernel
+          cd kernel
+          git checkout eb7107087f2bb9dc9c50bb81f31676f155272135
+          echo "===== SOURCE REVISION ====="
+          git log -1 --oneline
+          echo "===== KERNEL VERSION ====="
+          head -5 Makefile
+
+      - name: Audit Rolex defconfig and build requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd kernel
+
+          echo "===== ARM64 DEFCONFIG CANDIDATES ====="
+          find arch/arm64/configs -maxdepth 3 -type f -print | sort
+
+          echo "===== ROLEX CONFIG REFERENCES ====="
+          grep -RniE 'rolex|msm8917|xiaomi' arch/arm64/configs 2>/dev/null | head -250 || true
+
+          echo "===== DEVICE TREE SOURCES ====="
+          find arch/arm64/boot/dts -type f \\( -name '*.dts' -o -name '*.dtsi' \\) -print 2>/dev/null | sort | head -250 || true
+
+          echo "===== DTB BUILD RULES ====="
+          grep -RniE 'dtb-$(CONFIG_ARCH_MSM8917)|msm8917.*\.dtb|rolex.*\.dtb|dtb-y' \\
+            arch/arm64/boot/dts arch/arm64/Makefile 2>/dev/null | head -200 || true
+
+          echo "===== BUILD SCRIPTS ====="
+          find . -maxdepth 3 -type f \\( -name 'build.sh' -o -name 'build_kernel.sh' -o -name 'AndroidKernel.mk' -o -name '*.sh' \\) -print | sort | head -150
+
+          echo "===== TOOLCHAIN NOTES ====="
+          grep -RniE 'gcc.?6|CROSS_COMPILE|TOOLCHAIN|clang|GCC' \\
+            README* build.sh AndroidKernel.mk 2>/dev/null | head -150 || true
+
+          echo "===== KERNEL CONFIG OPTIONS ====="
+          grep -nE 'CONFIG_ARCH_MSM8917|CONFIG_MACH_XIAOMI_ROLEX|CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE|CONFIG_ARM64' \\
+            arch/arm64/configs/* 2>/dev/null | head -150 || true
+
+          echo "===== AUDIT COMPLETE ====="
+          echo "No kernel image was built. This workflow only inspects the pinned source."
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rolex-kernel-3.18.140-audit
+          path: |
+            kernel/Makefile
+            kernel/README*
+            kernel/arch/arm64/configs/
+          if-no-files-found: warn
