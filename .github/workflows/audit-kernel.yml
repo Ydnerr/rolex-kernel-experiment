@@ -1,0 +1,89 @@
+name: Audit Kernel
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Repo kernel (owner/nama)"
+        default: "Nick89786/android_kernel_xiaomi_msm8917"
+      branch:
+        description: "Branch (kosongkan = default)"
+        default: ""
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.branch }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Audit
+        working-directory: kernel
+        run: |
+          R=../audit.md
+          {
+          echo "# Audit Kernel"
+          echo
+          echo "## Versi kernel"
+          echo '```'
+          head -5 Makefile
+          echo '```'
+
+          echo "## Commit terakhir"
+          echo '```'
+          git log -1 --format='%h %s (%ad)' --date=short
+          echo '```'
+
+          echo "## Defconfig ARM (32-bit)"
+          echo '```'
+          ls arch/arm/configs 2>/dev/null | grep -i -E "rolex|riva|santoni|msm8917|8917" || echo "(tidak ada)"
+          echo '```'
+
+          echo "## Defconfig ARM64 (64-bit)"
+          echo '```'
+          ls arch/arm64/configs 2>/dev/null | grep -i -E "rolex|riva|santoni|msm8917|8917" || echo "(tidak ada)"
+          echo '```'
+
+          echo "## Cek isi defconfig (CONFIG_ARM64 / CONFIG_ARM)"
+          echo '```'
+          for f in $(ls arch/arm/configs/*rolex* arch/arm64/configs/*rolex* arch/arm/configs/*8917* arch/arm64/configs/*8917* 2>/dev/null); do
+            echo "== $f"
+            grep -E "^CONFIG_(ARM64|ARM|64BIT|CPU_V7|ARCH_MSM8917|ARCH_MSM8937)=" "$f" || echo "  (tidak ada penanda arch eksplisit)"
+          done
+          echo '```'
+
+          echo "## Device tree rolex"
+          echo '```'
+          find arch -iname "*rolex*" 2>/dev/null | head -30 || true
+          echo '```'
+
+          echo "## Output boot (Makefile)"
+          echo '```'
+          grep -n -i -E "zImage-dtb|dtbTool|Image.gz-dtb|dtb" arch/arm/boot/Makefile 2>/dev/null | head -10
+          grep -n -i -E "Image.gz-dtb|dtb" arch/arm64/boot/Makefile 2>/dev/null | head -10
+          echo '```'
+
+          echo "## Config penting"
+          echo '```'
+          for f in $(ls arch/arm/configs/*rolex* arch/arm64/configs/*rolex* 2>/dev/null); do
+            echo "== $f"
+            grep -E "CONFIG_(LOCALVERSION|CC_STACKPROTECTOR|ANDROID_PARANOID|KSU|SELINUX|OVERLAY_FS|CGROUPS|PSTORE|MODULES|CC_OPTIMIZE)" "$f"
+          done
+          echo '```'
+
+          echo "## File build/CI/toolchain di repo"
+          echo '```'
+          ls | grep -i -E "build|readme|\.sh|\.yml|\.yaml|toolchain" || echo "(tidak ada)"
+          echo '```'
+          } > $R
+
+          cat $R >> $GITHUB_STEP_SUMMARY
+          cat $R
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-kernel
+          path: audit.md
