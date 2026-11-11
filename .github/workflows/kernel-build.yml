@@ -1,0 +1,38 @@
+name: Rolex Kernel Audit
+
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git bc bison flex \
+            build-essential libssl-dev libelf-dev \
+            device-tree-compiler python3
+
+      - name: Clone kernel source
+        run: |
+          git clone --depth=1 \
+            https://github.com/Mi-Thorium/kernel_msm-4.19.git kernel
+
+      - name: Inspect source
+        run: |
+          cd kernel
+          echo "=== COMMIT ==="
+          git log -1 --oneline
+
+          echo "=== MSM8917 DTS ==="
+          grep -Ril "msm8917" \
+            arch/arm64/boot/dts/ || true
+
+          echo "=== ROLEX DTS ==="
+          grep -Ril "rolex" \
+            arch/arm64/boot/dts/ || true
+
+          echo "=== DEFCONFIG ==="
+          find arch/arm64/configs -type f
