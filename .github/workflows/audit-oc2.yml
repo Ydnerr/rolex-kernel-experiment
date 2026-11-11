@@ -1,0 +1,76 @@
+name: Audit OC CPU 2
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch (kosongkan = default)"
+        default: ""
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Nick89786/android_kernel_xiaomi_msm8917
+          ref: ${{ inputs.branch }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Cetak potongan kode
+        working-directory: kernel
+        shell: bash
+        run: |
+          R=../audit-oc2.md
+          D=arch/arm/boot/dts/qcom
+          {
+          echo "# Audit OC CPU 2"
+
+          echo "## Driver yang memuat compatible cpu-clock-8917"
+          echo '```'
+          grep -rIn "cpu-clock-8917" drivers | head -10 || true
+          echo '```'
+
+          echo "## Semua baris 8917 di drivers/clk/msm"
+          echo '```'
+          grep -rIn "8917" drivers/clk/msm | head -40 || true
+          echo '```'
+
+          echo "## File gcc di drivers/clk/msm"
+          echo '```'
+          ls drivers/clk/msm | grep -i -E "gcc|8952|8917|8937" || true
+          echo '```'
+
+          echo "## msm8917.dtsi: clock_cpu dan sekitarnya (770-830)"
+          echo '```'
+          sed -n '770,830p' $D/msm8917.dtsi
+          echo '```'
+
+          echo "## msm8917-regulator.dtsi: apc_vreg_corner (505-575)"
+          echo '```'
+          sed -n '505,575p' $D/msm8917-regulator.dtsi
+          echo '```'
+
+          echo "## msm8917.dtsi: thermal (400-470)"
+          echo '```'
+          sed -n '400,470p' $D/msm8917.dtsi
+          echo '```'
+
+          echo "## Tabel APCS PLL di clock-gcc-8952.c (235-275)"
+          echo '```'
+          sed -n '235,275p' drivers/clk/msm/clock-gcc-8952.c
+          echo '```'
+
+          echo "## Tabel frekuensi di clock-cpu-8939.c (baris yang ada freq / corner / 8917)"
+          echo '```'
+          grep -n -i -E "8917|F_APCS|a53|freq|corner|VDD_" drivers/clk/msm/clock-cpu-8939.c | head -80 || true
+          echo '```'
+          } > $R
+
+          cat $R >> $GITHUB_STEP_SUMMARY
+          cat $R
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-oc2
+          path: audit-oc2.md
