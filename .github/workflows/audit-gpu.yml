@@ -1,0 +1,78 @@
+name: Audit OC GPU
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch (kosongkan = default)"
+        default: ""
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Nick89786/android_kernel_xiaomi_msm8917
+          ref: ${{ inputs.branch }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Cetak potongan kode GPU
+        working-directory: kernel
+        shell: bash
+        run: |
+          R=../audit-gpu.md
+          D=arch/arm/boot/dts/qcom
+          G=drivers/clk/msm/clock-gcc-8952.c
+          {
+          echo "# Audit OC GPU"
+
+          echo "## Tabel frekuensi gfx3d 8917 (clock-gcc-8952.c)"
+          echo '```'
+          grep -n "ftbl_gcc_oxili_gfx3d_clk" $G | head -20
+          n=$(grep -n "ftbl_gcc_oxili_gfx3d_clk_8917\[\]" $G | head -1 | cut -d: -f1)
+          [ -n "$n" ] && sed -n "$((n-2)),$((n+40))p" $G
+          echo '```'
+
+          echo "## override_for_8917 (pemilihan tabel per speed bin)"
+          echo '```'
+          n=$(grep -n "static void override_for_8917" $G | head -1 | cut -d: -f1)
+          [ -n "$n" ] && sed -n "${n},$((n+85))p" $G
+          echo '```'
+
+          echo "## gfx3d clock: sumber, vdd class, fmax"
+          echo '```'
+          grep -n -i -E "gpll3|gfx3d_clk_src|VDD_HF_PLL|vdd_hf_pll|vdd_dig_hf|VDD_DIG_NUM_8917|VDD_HF_PLL_NUM_8917" $G | head -50
+          echo '```'
+
+          echo "## File dts GPU"
+          echo '```'
+          ls $D | grep -i -E "gpu|kgsl|adreno" || echo "(tidak ada)"
+          echo '```'
+
+          for f in $(ls $D | grep -i -E "8917.*gpu|8937.*gpu|8953.*gpu" | head -3); do
+            echo "## $f: pwrlevels"
+            echo '```'
+            n=$(grep -n "qcom,gpu-pwrlevels" $D/$f | head -1 | cut -d: -f1)
+            if [ -n "$n" ]; then sed -n "$((n-15)),$((n+75))p" $D/$f; else grep -n -i -E "pwrlevel|gpu-freq|bus-freq|speed-bin" $D/$f | head -60; fi
+            echo '```'
+          done
+
+          echo "## Referensi gpu di msm8917.dtsi"
+          echo '```'
+          grep -n -i -E "gpu|kgsl|adreno" $D/msm8917.dtsi | head -30 || true
+          echo '```'
+
+          echo "## Konfigurasi GPU di defconfig"
+          echo '```'
+          grep -E "CONFIG_(MSM_KGSL|ADRENO|QCOM_ADRENO|MSM_ADRENO|DEVFREQ)" arch/arm64/configs/rolex_defconfig || true
+          echo '```'
+          } > $R
+
+          cat $R >> $GITHUB_STEP_SUMMARY
+          cat $R
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-gpu
+          path: audit-gpu.md
