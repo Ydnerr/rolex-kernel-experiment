@@ -1,64 +1,31 @@
-name: MSM8917 Device Tree Audit
-
-on:
-  workflow_dispatch:
-
-jobs:
-  audit:
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Clone device tree
+- name: Audit kernel build integration
         run: |
-          git clone --depth=1 --branch a11/master \
-            https://github.com/Mi-Thorium/android_device_xiaomi_Mi8937.git device
+          echo "===== DEVICE BOARD CONFIG 4.19 ====="
+          cat device/Mi8937_4_19/BoardConfig.mk
 
-      - name: Clone kernel
-        run: |
-          git clone --depth=1 \
-            https://github.com/Mi-Thorium/kernel_msm-4.19.git kernel
+          echo "===== COMMON KERNEL CONFIG ====="
+          find device -name "BoardConfigCommon.mk" -o -name "*kernel*.mk"
 
-      - name: Inspect device tree
-        run: |
-          cd device
+          echo "===== KERNEL BUILD VARIABLES ====="
+          grep -RniE "TARGET_KERNEL_CONFIG|TARGET_KERNEL_VERSION|TARGET_USES_MITHORIUM_KERNEL" \
+            device/ --include="*.mk" --include="*.bp" | head -150
 
-          echo "===== DEVICE TREE COMMIT ====="
-          git log -1 --oneline
+          echo "===== MITHORIUM COMMON REFERENCES ====="
+          grep -RniE "TARGET_KERNEL_CONFIG|KERNEL_CONFIG|DEFCONFIG|make.*Image" \
+            device/ --include="*.mk" --include="*.sh" | head -150
 
-          echo "===== BOARD CONFIG ====="
-          cat BoardConfig.mk
-
-          echo "===== ANDROID PRODUCTS ====="
-          cat AndroidProducts.mk
-
-          echo "===== KERNEL 4.19 PRODUCT ====="
-          cat lineage_Mi8937_4_19.mk
-
-          echo "===== KERNEL 4.19 DIRECTORY ====="
-          find Mi8937_4_19 -maxdepth 3 -type f
-
-          echo "===== KERNEL REFERENCES ====="
-          grep -RniE "TARGET_KERNEL|KERNEL_CONFIG|Mi8917|rolex|Mi8937_4_19" \
-            --include="*.mk" --include="*.bp" . | head -150
-
-      - name: Inspect kernel integration
-        run: |
+          echo "===== KERNEL CONFIG FRAGMENTS ====="
           cd kernel
 
-          echo "===== KERNEL COMMIT ====="
-          git log -1 --oneline
+          echo "--- legacy ---"
+          cat arch/arm64/configs/vendor/msm8937-legacy.config
 
-          echo "===== BUILD SCRIPTS ====="
-          find . -maxdepth 3 -type f \
-            \( -name "*.sh" -o -name "Makefile" \) | head -100
+          echo "--- common ---"
+          cat arch/arm64/configs/vendor/xiaomi/msm8937/common.config
 
-          echo "===== DEFCONFIG REFERENCES ====="
-          grep -RniE "mi8917.config|msm8937-perf_defconfig|msm8937-legacy.config" \
-            --include="*.sh" --include="Makefile" --include="*.mk" . | head -100
+          echo "--- mi8937 ---"
+          cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937.config
 
-          echo "===== DTB BUILD REFERENCES ====="
-          grep -RniE "dtb|dtbo|vendor-legacy|xiaomi-msm8937" \
-            --include="Makefile" --include="*.mk" arch/arm64/boot | head -150
-
-          echo "===== ROLEX REFERENCES ====="
-          grep -Rni "rolex" arch/ drivers/ | head -100
+          echo "===== ROLEX CONFIG RESULT ====="
+          grep -nE "MACH_XIAOMI_ROLEX|BATTERY_CW2015_ROLEX|SMB358_CHARGER_ROLEX" \
+            arch/arm64/configs/vendor/xiaomi/msm8937/*.config
