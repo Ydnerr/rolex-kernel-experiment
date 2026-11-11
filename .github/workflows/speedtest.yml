@@ -1,0 +1,38 @@
+name: Internet Speedtest
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *" # tiap 6 jam
+
+jobs:
+  speedtest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install speedtest-cli
+        run: pip install speedtest-cli
+
+      - name: Run speedtest
+        run: |
+          speedtest-cli --json > result.json
+          cat result.json
+
+      - name: Tampilkan hasil
+        run: |
+          python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          d = json.load(open("result.json"))
+          print("### 🚀 Hasil Speedtest")
+          print("| Metrik | Nilai |")
+          print("|---|---|")
+          print(f"| Download | {d['download']/1e6:.2f} Mbps |")
+          print(f"| Upload | {d['upload']/1e6:.2f} Mbps |")
+          print(f"| Ping | {d['ping']:.2f} ms |")
+          print(f"| Server | {d['server']['sponsor']} ({d['server']['name']}) |")
+          EOF
+
+      - name: Upload hasil
+        uses: actions/upload-artifact@v4
+        with:
+          name: speedtest-result
+          path: result.json￼Enter
