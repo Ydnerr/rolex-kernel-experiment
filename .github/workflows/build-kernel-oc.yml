@@ -5,17 +5,23 @@ on:
       branch:
         description: "Branch (kosongkan = default)"
         default: ""
-      gpu650:
-        description: "OC GPU ke 650 MHz (matikan kalau GPU bermasalah)"
-        type: boolean
-        default: true
+      gpu_mhz:
+        description: "Frekuensi maksimum GPU (MHz). 598 = stock"
+        type: choice
+        options:
+          - "800"
+          - "650"
+          - "598"
+        default: "800"
       cpu_khz:
         description: "Frekuensi maksimum CPU (kHz)"
         type: choice
         options:
           - "1536000"
           - "1497600"
-        default: "1536000"
+          - "1651200"
+          - "1996800"
+        default: "1996800"
 
 jobs:
   build:
@@ -52,6 +58,19 @@ jobs:
           hz = khz + '000'
           D = 'arch/arm/boot/dts/qcom/'
 
+          # 0) pastikan ada entri PLL untuk frekuensi ini (kelipatan 19.2 MHz)
+          p = 'drivers/clk/msm/clock-gcc-8952.c'
+          s = open(p).read()
+          a = s.index('static struct pll_freq_tbl apcs_c1_pll_freq[] = {')
+          b = s.index('};', a)
+          tbl = s[a:b]
+          if not re.search(r'F_APCS_PLL\(\s*%s,' % hz, tbl):
+              assert int(hz) % 19200000 == 0, 'frekuensi harus kelipatan 19.2 MHz'
+              L = int(hz) // 19200000
+              tbl += '\tF_APCS_PLL(%s, %d, 0x0, 0x1, 0x0, 0x0, 0x0),\n' % (hz, L)
+              s = s[:a] + tbl + s[b:]
+              open(p, 'w').write(s)
+
           p = D + 'msm8917.dtsi'
           s = open(p).read()
           # ganti frekuensi step ke-5 di tabel bin 1 dan di cpufreq-table
@@ -77,18 +96,28 @@ jobs:
           EOF
 
           echo "=== hasil patch CPU: ${CPU_KHZ} kHz ==="
+          grep -n "F_APCS_PLL( *${CPU_KHZ}000," drivers/clk/msm/clock-gcc-8952.c
           grep -n "${CPU_KHZ}000 5>" arch/arm/boot/dts/qcom/msm8917.dtsi
           grep -n "< ${CPU_KHZ} >" arch/arm/boot/dts/qcom/msm8917.dtsi
           grep -n "<5 ${CPU_KHZ}000>" arch/arm/boot/dts/qcom/msm8917-regulator.dtsi
           grep -n "<0 (-1) 1 2 5>" arch/arm/boot/dts/qcom/msm8917-regulator.dtsi
           test "$(grep -c "${CPU_KHZ}000 5>" arch/arm/boot/dts/qcom/msm8917.dtsi)" -ge 2
 
-      - name: Patch OC GPU (650 MHz untuk speed bin 0)
-        if: ${{ inputs.gpu650 }}
+      - name: Patch OC GPU (speed bin 0)
         working-directory: kernel
         shell: bash
+        env:
+          GPU_MHZ: ${{ inputs.gpu_mhz }}
         run: |
+          if [ "$GPU_MHZ" = "598" ]; then
+            echo "GPU stock (598 MHz), tidak dipatch"
+            exit 0
+          fi
           python3 - << 'EOF'
+          import os
+          mhz = int(os.environ['GPU_MHZ'])
+          hz = mhz * 1000000
+
           # 1) clock: pakai tabel gfx3d 650 MHz untuk semua speed bin
           p = 'drivers/clk/msm/clock-gcc-8952.c'
           s = open(p).read()
@@ -97,10 +126,19 @@ jobs:
           f = s[a:b]
           assert f.count('if (speed_bin) {') == 1, 'cabang speed_bin gfx3d tidak ketemu'
           f = f.replace('if (speed_bin) {', 'if (1) {')
+          if mhz > 650:
+              old = 'NOM_PLUS, 523200000, HIGH, 650000000);'
+              assert old in f, 'fmax HIGH 650 MHz tidak ketemu'
+              f = f.replace(old, 'NOM_PLUS, 523200000, HIGH, %d);' % hz)
           s = s[:a] + f + s[b:]
+          if mhz > 650:
+              t = s.index('ftbl_gcc_oxili_gfx3d_clk_8917_650MHz[] = {')
+              e = s.rindex('\n', t, s.index('F_END', t)) + 1
+              entry = '\tF_SLEW( %d, %d,\t  gpll3,\t1,\t0,\t0),\n' % (hz, hz * 2)
+              s = s[:e] + entry + s[e:]
           open(p, 'w').write(s)
 
-          # 2) dts: pwrlevel@0 bin 0 disalin dari bin 1 (650 MHz)
+          # 2) dts: pwrlevel@0 bin 0 disalin dari bin 1 (650 MHz), lalu frekuensinya disesuaikan
           p = 'arch/arm/boot/dts/qcom/msm8917.dtsi'
           s = open(p).read()
           i0 = s.index('qcom,gpu-pwrlevels-0 {')
@@ -110,18 +148,23 @@ jobs:
               b = s.index('};', a) + 2
               return a, b
           a1, b1 = block(s, i1)
-          blk1 = s[a1:b1]
-          assert '650000000' in blk1, 'pwrlevel@0 bin 1 bukan 650 MHz'
+          blk = s[a1:b1]
+          assert '650000000' in blk, 'pwrlevel@0 bin 1 bukan 650 MHz'
+          blk = blk.replace('650000000', str(hz))
           a0, b0 = block(s, i0)
           assert '598000000' in s[a0:b0], 'pwrlevel@0 bin 0 bukan 598 MHz'
-          s = s[:a0] + blk1 + s[b0:]
+          s = s[:a0] + blk + s[b0:]
           open(p, 'w').write(s)
           EOF
 
-          echo "=== hasil patch GPU ==="
+          echo "=== hasil patch GPU: ${GPU_MHZ} MHz ==="
           grep -n "if (1) {" drivers/clk/msm/clock-gcc-8952.c
-          grep -n "qcom,gpu-freq = <650000000>" arch/arm/boot/dts/qcom/msm8917.dtsi
-          test "$(grep -c 'qcom,gpu-freq = <650000000>' arch/arm/boot/dts/qcom/msm8917.dtsi)" -ge 2
+          grep -n "F_SLEW( *${GPU_MHZ}000000" drivers/clk/msm/clock-gcc-8952.c
+          grep -n "qcom,gpu-freq = <${GPU_MHZ}000000>" arch/arm/boot/dts/qcom/msm8917.dtsi
+          # info untuk diagnosa: definisi gpll3 (batas fmax/vco)
+          n=$(grep -n "static struct alpha_pll_clk gpll3_clk_src" drivers/clk/msm/clock-gcc-8952.c | head -1 | cut -d: -f1)
+          [ -n "$n" ] && sed -n "$((n-12)),$((n+30))p" drivers/clk/msm/clock-gcc-8952.c
+          test "$(grep -c "qcom,gpu-freq = <${GPU_MHZ}000000>" arch/arm/boot/dts/qcom/msm8917.dtsi)" -ge 1
 
       - name: Build
         working-directory: kernel
