@@ -1,4 +1,4 @@
-name: Rolex Kernel Audit
+name: MSM8917 Deep Audit
 
 on:
   workflow_dispatch:
@@ -8,50 +8,29 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y git bc bison flex \
-            build-essential libssl-dev libelf-dev \
-            device-tree-compiler python3
-
-      - name: Clone kernel source
+      - name: Clone kernel
         run: |
           git clone --depth=1 \
             https://github.com/Mi-Thorium/kernel_msm-4.19.git kernel
 
-      - name: Inspect source
-              - name: Inspect MSM8917 configuration
+      - name: Inspect MSM8917
         run: |
           cd kernel
 
-          echo "=== MI8917 CONFIG ==="
+          echo "===== MI8917 CONFIG ====="
           cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8917.config
 
-          echo "=== MSM8937 CONFIG ==="
+          echo "===== MSM8937 CONFIG ====="
           cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937.config
 
-          echo "=== EXCLUSION CONFIG ==="
+          echo "===== EXCLUSION CONFIG ====="
           cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937_exclude_mi8917.config
 
-          echo "=== DEVICE TREE MAKEFILE ==="
+          echo "===== MSM8917 MAKEFILE ====="
           grep -n "msm8917" arch/arm64/boot/dts/vendor/qcom/Makefile || true
 
-          echo "=== MSM8917 DTSI REFERENCES ==="
-          grep -Rni "msm8917" arch/arm64/boot/dts/vendor/qcom/
-      
-        run: |
-          cd kernel
-          echo "=== COMMIT ==="
-          git log -1 --oneline
+          echo "===== DEVICE TREE REFERENCES ====="
+          grep -Rni "msm8917" arch/arm64/boot/dts/vendor/qcom/ || true
 
-          echo "=== MSM8917 DTS ==="
-          grep -Ril "msm8917" \
-            arch/arm64/boot/dts/ || true
-
-          echo "=== ROLEX DTS ==="
-          grep -Ril "rolex" \
-            arch/arm64/boot/dts/ || true
-
-          echo "=== DEFCONFIG ==="
-          find arch/arm64/configs -type f
+          echo "===== MSM8917 DRIVERS ====="
+          grep -Ril "msm8917" drivers/ | head -100
