@@ -1,0 +1,70 @@
+name: Audit OC CPU
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch (kosongkan = default)"
+        default: ""
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Nick89786/android_kernel_xiaomi_msm8917
+          ref: ${{ inputs.branch }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Cari tabel frekuensi CPU
+        working-directory: kernel
+        shell: bash
+        run: |
+          R=../audit-oc.md
+          {
+          echo "# Audit OC CPU"
+
+          echo "## File clock CPU di drivers/clk/msm"
+          echo '```'
+          ls drivers/clk/msm | grep -i -E "cpu|a53|a7|8917|8937|8939|8953|mux|pll" || echo "(tidak ada)"
+          echo '```'
+
+          echo "## Cari angka frekuensi 1.4 GHz / 960 MHz di drivers/clk"
+          echo '```'
+          grep -rIn -E "1401600000|1401000000|1401000|1401600|960000000" drivers/clk 2>/dev/null | head -40 || true
+          echo '```'
+
+          echo "## Cari angka frekuensi di dts (msm8917 dan turunan)"
+          echo '```'
+          grep -rIn -E "1401600000|1401000000|1401600|1401000|960000000" arch/arm/boot/dts/qcom/msm8917*.dtsi arch/arm/boot/dts/qcom/msm8937*.dtsi arch/arm/boot/dts/qcom/msm8940*.dtsi 2>/dev/null | head -40 || true
+          echo '```'
+
+          echo "## Node clock CPU di dts"
+          echo '```'
+          grep -rIn -E "qcom,cpu-clock|cpu-clock-8939|a53-clock|qcom,a53|clock-cpu" arch/arm/boot/dts/qcom/msm8917*.dtsi arch/arm/boot/dts/qcom/msm8937*.dtsi 2>/dev/null | head -30 || true
+          echo '```'
+
+          echo "## Voltase CPR / regulator CPU"
+          echo '```'
+          grep -rIn -i -E "cpr|apc.*regulator|vdd-apc|speed-bin" arch/arm/boot/dts/qcom/msm8917*.dtsi 2>/dev/null | head -30 || true
+          echo '```'
+
+          echo "## Thermal"
+          echo '```'
+          grep -rIn -i -E "msm_thermal|qcom,msm-thermal|core_limit|freq_mitigation" arch/arm/boot/dts/qcom/msm8917*.dtsi 2>/dev/null | head -20 || true
+          echo '```'
+
+          echo "## Defconfig: cpufreq, CPR, thermal"
+          echo '```'
+          grep -E "CONFIG_(MSM_CPR|REGULATOR_CPR|CPU_FREQ_MSM|MSM_THERMAL|THERMAL|CPU_BOOST)" arch/arm64/configs/rolex_defconfig || true
+          echo '```'
+          } > $R
+
+          cat $R >> $GITHUB_STEP_SUMMARY
+          cat $R
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-oc
+          path: audit-oc.md
