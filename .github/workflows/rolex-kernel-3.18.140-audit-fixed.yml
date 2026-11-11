@@ -1,72 +1,102 @@
-name: Rolex Kernel 3.18.140 Audit
+name: Rolex Kernel 3.18.140 Deep Audit
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  audit:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
+audit:
+runs-on: ubuntu-22.04
+timeout-minutes: 20
 
-    steps:
-      - name: Install audit dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git curl
+steps:
+  - name: Install dependencies
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y git
 
-      - name: Clone pinned kernel source
-        run: |
-          git clone https://github.com/Nick89786/android_kernel_xiaomi_msm8917.git kernel
-          cd kernel
-          git checkout eb7107087f2bb9dc9c50bb81f31676f155272135
-          echo "===== SOURCE REVISION ====="
-          git log -1 --oneline
-          echo "===== KERNEL VERSION ====="
-          head -5 Makefile
+  - name: Clone pinned kernel source
+    run: |
+      git clone https://github.com/Nick89786/android_kernel_xiaomi_msm8917.git kernel
+      cd kernel
+      git checkout eb7107087f2bb9dc9c50bb81f31676f155272135
+      echo "===== SOURCE REVISION ====="
+      git rev-parse HEAD
+      git log -1 --oneline
 
-      - name: Audit Rolex defconfig and build requirements
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd kernel
+  - name: Deep audit Rolex config and DTB
+    shell: bash
+    run: |
+      set -uo pipefail
+      cd kernel
+      mkdir -p ../audit-report
 
-          echo "===== ARM64 DEFCONFIG CANDIDATES ====="
-          find arch/arm64/configs -maxdepth 3 -type f -print | sort
+      {
+        echo "===== SOURCE ID ====="
+        git rev-parse HEAD
+        git log -1 --format=fuller
 
-          echo "===== ROLEX CONFIG REFERENCES ====="
-          grep -RniE 'rolex|msm8917|xiaomi' arch/arm64/configs 2>/dev/null | head -250 || true
+        echo "===== KERNEL VERSION ====="
+        head -8 Makefile
 
-          echo "===== DEVICE TREE SOURCES ====="
-          find arch/arm64/boot/dts -type f \( -name '*.dts' -o -name '*.dtsi' \) -print 2>/dev/null | sort | head -250 || true
+        echo "===== ROLEX DEFCONFIG FULL ====="
+        cat arch/arm64/configs/rolex_defconfig
 
-          echo "===== DTB BUILD RULES ====="
-          grep -RniE 'dtb-$(CONFIG_ARCH_MSM8917)|msm8917.*\.dtb|rolex.*\.dtb|dtb-y' \
-            arch/arm64/boot/dts arch/arm64/Makefile 2>/dev/null | head -200 || true
+        echo "===== IMPORTANT CONFIG OPTIONS ====="
+        grep -nE 'CONFIG_(ARCH_MSM8917|MACH_XIAOMI_ROLEX|PINCTRL_MSM8917|BUILD_ARM64_APPENDED_DTB_IMAGE|ARM64|MSM|QCOM|ANDROID|CMDLINE|MODULES|GPIOLIB|REGULATOR|POWER_SUPPLY|BATTERY|CHARGER|INPUT|TOUCHSCREEN|FB|DRM|WLAN|BT|MMC|USB)' \
+          arch/arm64/configs/rolex_defconfig || true
 
-          echo "===== BUILD SCRIPTS ====="
-          find . -maxdepth 3 -type f \( -name 'build.sh' -o -name 'build_kernel.sh' -o -name 'AndroidKernel.mk' -o -name '*.sh' \) -print | sort | head -150
+        echo "===== DTS DIRECTORY ====="
+        ls -la arch/arm64/boot/dts
+        ls -la arch/arm64/boot/dts/qcom 2>&1 || true
+        readlink -f arch/arm64/boot/dts/qcom 2>&1 || true
 
-          echo "===== TOOLCHAIN NOTES ====="
-          grep -RniE 'gcc.?6|CROSS_COMPILE|TOOLCHAIN|clang|GCC' \
-            README* build.sh AndroidKernel.mk 2>/dev/null | head -150 || true
+        echo "===== QCOM DTS FILES ====="
+        find -L arch/arm64/boot/dts/qcom -maxdepth 2 -type f \
+          -name '*.dts' -o -name '*.dtsi' \
+          -print 2>/dev/null | sort | head -400 || true
 
-          echo "===== KERNEL CONFIG OPTIONS ====="
-          grep -nE 'CONFIG_ARCH_MSM8917|CONFIG_MACH_XIAOMI_ROLEX|CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE|CONFIG_ARM64' \
-            arch/arm64/configs/* 2>/dev/null | head -150 || true
+        echo "===== MSM8917 DTB MAKEFILE ====="
+        sed -n '185,225p' arch/arm64/boot/dts/qcom/Makefile 2>&1 || true
 
-          echo "===== AUDIT COMPLETE ====="
-          echo "No kernel image was built. This workflow only inspects the pinned source."
+        echo "===== ROLEX DEVICE TREE REFERENCES ====="
+        grep -RniE 'rolex|xiaomi.*8917|8917.*xiaomi' \
+          arch/arm64/boot/dts 2>/dev/null | head -300 || true
 
-      - name: Upload audit report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rolex-kernel-3.18.140-audit
-          path: |
-            kernel/Makefile
-            kernel/README*
-            kernel/arch/arm64/configs/
-          if-no-files-found: warn
+        echo "===== APPENDED DTB IMPLEMENTATION ====="
+        grep -RniE 'BUILD_ARM64_APPENDED_DTB_IMAGE|Image\.gz-dtb|Image-dtb|append.*dtb|dtb.*append' \
+          arch/arm64 Makefile scripts 2>/dev/null | head -250 || true
+
+        echo "===== ANDROID KERNEL MAKEFILE ====="
+        sed -n '1,210p' AndroidKernel.mk
+
+        echo "===== BUILD DOCUMENTATION ====="
+        for f in README README.md build.sh build_kernel.sh; do
+          if [ -f "$f" ]; then
+            echo "--- $f ---"
+            sed -n '1,220p' "$f"
+          fi
+        done
+
+        echo "===== TOOLCHAIN REFERENCES ====="
+        grep -RniE 'rolex_defconfig|CROSS_COMPILE|TARGET_KERNEL_CROSS_COMPILE_PREFIX|arm-eabi-|aarch64-linux-android-|gcc-6|gcc6|Image\.gz-dtb' \
+          --include='*.mk' --include='*.sh' --include='Makefile' --include='*.md' \
+          . 2>/dev/null | head -300 || true
+
+        echo "===== ROLEX DRIVER REFERENCES ====="
+        grep -RniE 'CONFIG_MACH_XIAOMI_ROLEX|MACH_XIAOMI_ROLEX|BATTERY_CW2015_ROLEX|SMB358_CHARGER_ROLEX' \
+          drivers arch include 2>/dev/null | head -250 || true
+
+        echo "===== AUDIT COMPLETE ====="
+
+      } 2>&1 | tee ../audit-report/deep-audit.txt
+
+  - name: Upload deep audit report
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: rolex-kernel-3.18.140-deep-audit
+      path: audit-report/deep-audit.txt
+      if-no-files-found: warn
