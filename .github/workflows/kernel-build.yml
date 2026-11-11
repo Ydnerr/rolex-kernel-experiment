@@ -1,31 +1,31 @@
 - name: Audit kernel build integration
-        run: |
-          echo "===== DEVICE BOARD CONFIG 4.19 ====="
-          cat device/Mi8937_4_19/BoardConfig.mk
+  run: |
+  echo "===== DEVICE BOARD CONFIG 4.19 ====="
+  cat device/Mi8937_4_19/BoardConfig.mk
+  
+      echo "===== COMMON KERNEL CONFIG ====="
+    find device -name "BoardConfigCommon.mk" -o -name "*kernel*.mk"
 
-          echo "===== COMMON KERNEL CONFIG ====="
-          find device -name "BoardConfigCommon.mk" -o -name "*kernel*.mk"
+    echo "===== KERNEL BUILD VARIABLES ====="
+    grep -RniE "TARGET_KERNEL_CONFIG|TARGET_KERNEL_VERSION|TARGET_USES_MITHORIUM_KERNEL" \
+      device/ --include="*.mk" --include="*.bp" | head -150
 
-          echo "===== KERNEL BUILD VARIABLES ====="
-          grep -RniE "TARGET_KERNEL_CONFIG|TARGET_KERNEL_VERSION|TARGET_USES_MITHORIUM_KERNEL" \
-            device/ --include="*.mk" --include="*.bp" | head -150
+    echo "===== MITHORIUM COMMON REFERENCES ====="
+    grep -RniE "TARGET_KERNEL_CONFIG|KERNEL_CONFIG|DEFCONFIG|make.*Image" \
+      device/ --include="*.mk" --include="*.sh" | head -150
 
-          echo "===== MITHORIUM COMMON REFERENCES ====="
-          grep -RniE "TARGET_KERNEL_CONFIG|KERNEL_CONFIG|DEFCONFIG|make.*Image" \
-            device/ --include="*.mk" --include="*.sh" | head -150
+    echo "===== KERNEL CONFIG FRAGMENTS ====="
+    cd kernel
 
-          echo "===== KERNEL CONFIG FRAGMENTS ====="
-          cd kernel
+    echo "--- legacy ---"
+    cat arch/arm64/configs/vendor/msm8937-legacy.config
 
-          echo "--- legacy ---"
-          cat arch/arm64/configs/vendor/msm8937-legacy.config
+    echo "--- common ---"
+    cat arch/arm64/configs/vendor/xiaomi/msm8937/common.config
 
-          echo "--- common ---"
-          cat arch/arm64/configs/vendor/xiaomi/msm8937/common.config
+    echo "--- mi8937 ---"
+    cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937.config
 
-          echo "--- mi8937 ---"
-          cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937.config
-
-          echo "===== ROLEX CONFIG RESULT ====="
-          grep -nE "MACH_XIAOMI_ROLEX|BATTERY_CW2015_ROLEX|SMB358_CHARGER_ROLEX" \
-            arch/arm64/configs/vendor/xiaomi/msm8937/*.config
+    echo "===== ROLEX CONFIG RESULT ====="
+    grep -nE "MACH_XIAOMI_ROLEX|BATTERY_CW2015_ROLEX|SMB358_CHARGER_ROLEX" \
+      arch/arm64/configs/vendor/xiaomi/msm8937/*.config
