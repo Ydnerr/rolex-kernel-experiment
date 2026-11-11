@@ -21,6 +21,25 @@ jobs:
             https://github.com/Mi-Thorium/kernel_msm-4.19.git kernel
 
       - name: Inspect source
+              - name: Inspect MSM8917 configuration
+        run: |
+          cd kernel
+
+          echo "=== MI8917 CONFIG ==="
+          cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8917.config
+
+          echo "=== MSM8937 CONFIG ==="
+          cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937.config
+
+          echo "=== EXCLUSION CONFIG ==="
+          cat arch/arm64/configs/vendor/xiaomi/msm8937/mi8937_exclude_mi8917.config
+
+          echo "=== DEVICE TREE MAKEFILE ==="
+          grep -n "msm8917" arch/arm64/boot/dts/vendor/qcom/Makefile || true
+
+          echo "=== MSM8917 DTSI REFERENCES ==="
+          grep -Rni "msm8917" arch/arm64/boot/dts/vendor/qcom/
+      
         run: |
           cd kernel
           echo "=== COMMIT ==="
