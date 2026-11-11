@@ -5,6 +5,17 @@ on:
       branch:
         description: "Branch (kosongkan = default)"
         default: ""
+      gpu650:
+        description: "OC GPU ke 650 MHz (matikan kalau GPU bermasalah)"
+        type: boolean
+        default: true
+      cpu_khz:
+        description: "Frekuensi maksimum CPU (kHz)"
+        type: choice
+        options:
+          - "1536000"
+          - "1497600"
+        default: "1536000"
 
 jobs:
   build:
@@ -29,33 +40,88 @@ jobs:
             https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
             $HOME/gcc64
 
-      - name: Patch OC (1497.6 MHz untuk speed bin 0)
+      - name: Patch OC CPU (speed bin 0)
         working-directory: kernel
         shell: bash
+        env:
+          CPU_KHZ: ${{ inputs.cpu_khz }}
         run: |
           python3 - << 'EOF'
-          import re
-          # 1) tambah corner 5 (1497.6 MHz) ke tabel speed bin 0
-          p = 'arch/arm/boot/dts/qcom/msm8917.dtsi'
+          import os, re
+          khz = os.environ['CPU_KHZ']
+          hz = khz + '000'
+          D = 'arch/arm/boot/dts/qcom/'
+
+          p = D + 'msm8917.dtsi'
           s = open(p).read()
+          # ganti frekuensi step ke-5 di tabel bin 1 dan di cpufreq-table
+          s, n = re.subn(r'<\s*1497600000\s+5>', '< %s 5>' % hz, s)
+          assert n == 1, 'entri corner 5 bin 1 tidak ketemu'
+          s, n = re.subn(r'<\s*1497600\s*>', '< %s >' % khz, s)
+          assert n == 1, 'cpufreq-table tidak ketemu'
+          # tambah corner 5 ke tabel speed bin 0
           m = re.search(r'qcom,speed0-bin-v0-c1\s*=[^;]*?<\s*1401000000\s+4>', s)
           assert m, 'blok speed0-bin-v0-c1 tidak ketemu'
-          s = s[:m.end()] + ',\n\t\t\t< 1497600000 5>' + s[m.end():]
+          s = s[:m.end()] + ',\n\t\t\t< %s 5>' % hz + s[m.end():]
           open(p, 'w').write(s)
 
-          # 2) izinkan bin 0 sampai corner 5 di CPR
-          p = 'arch/arm/boot/dts/qcom/msm8917-regulator.dtsi'
+          p = D + 'msm8917-regulator.dtsi'
           s = open(p).read()
+          # peta corner CPR: corner 5 ikut frekuensi baru
+          s, n = re.subn(r'<5 1497600000>', '<5 %s>' % hz, s)
+          assert n == 1, 'corner-frequency-map corner 5 tidak ketemu'
+          # izinkan bin 0 sampai corner 5
           assert s.count('<0 (-1) 1 2 4>') == 1, 'speed-bin-max-corners bin 0 tidak ketemu'
           s = s.replace('<0 (-1) 1 2 4>', '<0 (-1) 1 2 5>')
           open(p, 'w').write(s)
           EOF
 
-          echo "=== hasil patch ==="
-          grep -n -B1 -A8 "speed0-bin-v0-c1" arch/arm/boot/dts/qcom/msm8917.dtsi
-          grep -n -A2 "cpr-speed-bin-max-corners" arch/arm/boot/dts/qcom/msm8917-regulator.dtsi
-          grep -q "1497600000 5" arch/arm/boot/dts/qcom/msm8917.dtsi
-          grep -q "<0 (-1) 1 2 5>" arch/arm/boot/dts/qcom/msm8917-regulator.dtsi
+          echo "=== hasil patch CPU: ${CPU_KHZ} kHz ==="
+          grep -n "${CPU_KHZ}000 5>" arch/arm/boot/dts/qcom/msm8917.dtsi
+          grep -n "< ${CPU_KHZ} >" arch/arm/boot/dts/qcom/msm8917.dtsi
+          grep -n "<5 ${CPU_KHZ}000>" arch/arm/boot/dts/qcom/msm8917-regulator.dtsi
+          grep -n "<0 (-1) 1 2 5>" arch/arm/boot/dts/qcom/msm8917-regulator.dtsi
+          test "$(grep -c "${CPU_KHZ}000 5>" arch/arm/boot/dts/qcom/msm8917.dtsi)" -ge 2
+
+      - name: Patch OC GPU (650 MHz untuk speed bin 0)
+        if: ${{ inputs.gpu650 }}
+        working-directory: kernel
+        shell: bash
+        run: |
+          python3 - << 'EOF'
+          # 1) clock: pakai tabel gfx3d 650 MHz untuk semua speed bin
+          p = 'drivers/clk/msm/clock-gcc-8952.c'
+          s = open(p).read()
+          a = s.index('static void override_for_8917(int speed_bin)')
+          b = s.index('static void override_for_8937(int speed_bin)')
+          f = s[a:b]
+          assert f.count('if (speed_bin) {') == 1, 'cabang speed_bin gfx3d tidak ketemu'
+          f = f.replace('if (speed_bin) {', 'if (1) {')
+          s = s[:a] + f + s[b:]
+          open(p, 'w').write(s)
+
+          # 2) dts: pwrlevel@0 bin 0 disalin dari bin 1 (650 MHz)
+          p = 'arch/arm/boot/dts/qcom/msm8917.dtsi'
+          s = open(p).read()
+          i0 = s.index('qcom,gpu-pwrlevels-0 {')
+          i1 = s.index('qcom,gpu-pwrlevels-1 {')
+          def block(s, start):
+              a = s.index('qcom,gpu-pwrlevel@0 {', start)
+              b = s.index('};', a) + 2
+              return a, b
+          a1, b1 = block(s, i1)
+          blk1 = s[a1:b1]
+          assert '650000000' in blk1, 'pwrlevel@0 bin 1 bukan 650 MHz'
+          a0, b0 = block(s, i0)
+          assert '598000000' in s[a0:b0], 'pwrlevel@0 bin 0 bukan 598 MHz'
+          s = s[:a0] + blk1 + s[b0:]
+          open(p, 'w').write(s)
+          EOF
+
+          echo "=== hasil patch GPU ==="
+          grep -n "if (1) {" drivers/clk/msm/clock-gcc-8952.c
+          grep -n "qcom,gpu-freq = <650000000>" arch/arm/boot/dts/qcom/msm8917.dtsi
+          test "$(grep -c 'qcom,gpu-freq = <650000000>' arch/arm/boot/dts/qcom/msm8917.dtsi)" -ge 2
 
       - name: Build
         working-directory: kernel
